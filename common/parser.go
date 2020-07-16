@@ -309,21 +309,23 @@ func ParseString(str []byte, numThreads int) (*symbol, error) {
 	//Lex the file to obtain the input list
 	start = time.Now()
 
-	cutPoints, numLexThreads := findCutPoints(str, numThreads)
-
+    numLexThreads := numThreads
 	Stats.NumLexThreads = numLexThreads
 	Stats.LexTimes = make([]time.Duration, numLexThreads)
-	Stats.CutPoints = cutPoints
-
-	if numLexThreads < numThreads {
-		fmt.Printf("It was not possible to find cut points for all %d threads.\n", numThreads)
-		fmt.Printf("The number of lexing threads was reduced to %d.\n", numLexThreads)
-	}
 
 	lexC := make(chan lexResult)
 
+    /* Split the string into N chunks, where N is the selected number
+       of threads, then for each chunk feed it to an independent state machine
+       finally, reduce all the state machines */
+    chunkSize := int(len(str) / numThreads)
 	for i := 0; i < numLexThreads; i++ {
-		go lex(i, str[cutPoints[i]:cutPoints[i+1]], stackPools[i], lexC)
+        /* The last chunk does not have the lookahead */
+        if i == numLexThreads - 1 {
+            go lex(i, numLexThreads, str[i*chunkSize:len(str)], stackPools[i], lexC)
+        } else {
+            go lex(i, numLexThreads, str[i*chunkSize:(i+1)*chunkSize+lexerLookahead], stackPools[i], lexC)
+        }
 	}
 
 	lexResults := make([]lexResult, numLexThreads)

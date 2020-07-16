@@ -77,25 +77,18 @@ func (l *lexer) yyLex(thread int, genSym *symbol) int {
 }
 
 /*
-findCutPoints cuts the input in specific points determined by a regular expression defined at generation time.
+Returns the index of the first cut point, according to the regular expression
+specified in the lexer file.
 */
-func findCutPoints(data []byte, numThreads int) ([]int, int) {
-	dataSize := len(data)
-	avgBytesPerThread := dataSize / numThreads
-	cutPoints := make([]int, numThreads+1)
-	cutPoints[0] = 0
-	cutPoints[len(cutPoints)-1] = dataSize
-
-	for i := 1; i < numThreads; i++ {
-		startPos := cutPoints[i-1] + avgBytesPerThread
-		curPos := startPos
-		curState := &cutPointsAutomaton[0]
+func findCutPoint(data []byte) int {
+		startPos, curPos := 0, 0
+        curState := &cutPointsAutomaton[0]
 		for !curState.IsFinal {
-			if curPos >= dataSize {
-				return append(cutPoints[0:i], cutPoints[len(cutPoints)-1]), i
+			if curPos >= len(data) {
+                startPos = 0
+                break
 			}
 			curStateIndex := curState.Transitions[data[curPos]]
-			//No more transitions are possible, reset the automaton state
 			if curStateIndex == -1 {
 				startPos = curPos + 1
 				curState = &cutPointsAutomaton[0]
@@ -103,19 +96,29 @@ func findCutPoints(data []byte, numThreads int) ([]int, int) {
 				curState = &lexerAutomaton[curStateIndex]
 			}
 			curPos++
-		}
-		cutPoints[i] = startPos
-	}
-
-	return cutPoints, numThreads
+        }
+        return startPos
 }
 
 /*
 lex is the lexing function executed in parallel by each thread.
-It takes as input a lexThreadContext and a channel where it eventually sends the result
-in form of a listOfStacks containing the lexed symbols.
+It takes as input a lexThreadContext and a channel where it eventually sends
+the result in form of a listOfStacks containing the lexed symbols.
 */
-func lex(threadNum int, data []byte, pool *stackPool, c chan lexResult) {
+func lex(threadNum, numThreads int, data []byte, pool *stackPool, c chan lexResult) {
+    /* To preserve finite tokens boundaries, if we are not the first chunk,
+       we look for delimiters, to skip any fragment of finite token */
+    if threadNum != 0 {
+        boundary := findCutPoint(data[:lexerLookahead+1])
+        data = data[boundary:]
+    }
+    /* Conversely if we are not the last chunk, we search for the last
+       delimiter in the lookahead section */
+    if threadNum != numThreads-1 {
+        boundary := findCutPoint(data[len(data) - lexerLookahead:]) + len(data) - lexerLookahead
+        data = data[:boundary]
+    }
+
 	start := time.Now()
 
 	los := newLos(pool)
