@@ -23,6 +23,11 @@ func lexerPreallocMem(inputSize int, numThreads int) {
 }
 
 /*
+lexerLookahead is the maximum length of a finite token.
+*/
+var lexerLookahead int = 1
+
+/*
 lexerFunction is the semantic function of the lexer.
 */
 func lexerFunction(thread int, ruleNum int, yytext string, genSym *symbol) int {

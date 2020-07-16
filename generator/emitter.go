@@ -8,6 +8,9 @@ import (
 	"path"
 	"sort"
 	"strings"
+    "log"
+    "regexp"
+    "regexp/syntax"
 
 	"github.com/simoneguidi94/gopapageno/generator/regex"
 )
@@ -92,6 +95,77 @@ func emitLexerAutomata(outdir string, dfa regex.Dfa, cutPointsDfa regex.Dfa) err
 	return nil
 }
 
+func subexpLength(re *syntax.Regexp) int {
+    switch(re.Op) {
+        case syntax.OpNoMatch:                      // matches no strings
+            fallthrough
+        case syntax.OpEmptyMatch:                   // matches empty string
+            fallthrough
+        case syntax.OpBeginLine:                    // matches empty string at beginning of line
+            fallthrough
+        case syntax.OpEndLine:                      // matches empty string at end of line
+            fallthrough
+        case syntax.OpBeginText:                    // matches empty string at beginning of text
+            fallthrough
+        case syntax.OpEndText:                      // matches empty string at end of text
+            fallthrough
+        case syntax.OpWordBoundary:                 // matches word boundary `\b`
+            fallthrough
+        case syntax.OpNoWordBoundary:               // matches word non-boundary `\B`
+            return 0
+        case syntax.OpLiteral:                      // matches Runes sequence
+            return len(re.Rune)
+        case syntax.OpAnyCharNotNL:                 // matches any character except newline
+            fallthrough
+        case syntax.OpAnyChar:                      // matches any character
+            return 1
+        case syntax.OpCapture:                      // capturing subexpression with index Cap, optional name Name
+            fallthrough
+        case syntax.OpQuest:                        // matches Sub[0] zero or one times
+            return subexpLength(re.Sub[0])
+        case syntax.OpRepeat:                       // matches Sub[0] at least Min times, at most Max (Max == -1 is no limit)
+        case syntax.OpConcat:                       // matches concatenation of Subs
+            var sum int = 0
+            for _, sub := range re.Sub {
+                sum += subexpLength(sub)
+            }
+            return sum
+        case syntax.OpAlternate:                    // matches alternation of Subs
+            var max int = 0
+            for _, sub := range re.Sub {
+                var length int = subexpLength(sub)
+                if length > max {
+                    max = length
+                }
+            }
+            return max
+        default:
+            return 0
+    }
+    return 0
+}
+
+func isFinite(regex string) bool {
+    /* Select only finite length regexes */
+    kleene := regexp.MustCompile(`\*|\+`)
+    return kleene.Find([]byte(regex)) == nil
+}
+
+func regexLength(regex string) int {
+    /* The regex is simplified to ease the computation of its length */
+    var re, err = syntax.Parse(regex, 0)
+    if err != nil {
+        log.Fatal(err)
+        return 0
+    }
+    re = re.Simplify()
+    if !isFinite(re.String()) {
+        return 0
+    }
+    /* Traverse the tree to extract length */
+    return subexpLength(re)
+}
+
 func emitLexerFunction(outdir string, lexCode string, lexRules []lexRule) error {
 	outPath := outdir + "/" + "lexerfunction.go"
 	file, err := createFile(outPath)
@@ -108,6 +182,19 @@ func emitLexerFunction(outdir string, lexCode string, lexRules []lexRule) error 
 
 	file.WriteString(lexCode)
 	file.WriteString("\n\n")
+
+    /* Compute the lexer lookahead as the maximum finite token length */
+    var lexerLookahead int = 0
+    for _, rule := range lexRules {
+        var regexLen int = regexLength(rule.Regex)
+        if regexLen > lexerLookahead {
+            lexerLookahead = regexLen
+        }
+    }
+	file.WriteString("/*\n")
+	file.WriteString("lexerLookahead is the maximum length of a finite token.\n")
+	file.WriteString("*/\n")
+	file.WriteString(fmt.Sprintf("var lexerLookahead int = %d\n\n", lexerLookahead))
 
 	file.WriteString("/*\n")
 	file.WriteString("lexerFunction is the semantic function of the lexer.\n")
