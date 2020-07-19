@@ -311,7 +311,14 @@ func ParseString(str []byte, numThreads int) (*symbol, error) {
 	//Lex the file to obtain the input list
 	start = time.Now()
 
-    numLexThreads := numThreads
+    var numLexThreads int = 0
+    if numThreads * lexerLookahead > len(str) {
+        numLexThreads = int(len(str) / lexerLookahead)
+    } else {
+        numLexThreads = numThreads
+    }
+    fmt.Printf("The effective number of threads is %d\n", numLexThreads)
+
 	Stats.NumLexThreads = numLexThreads
 	Stats.LexTimes = make([]time.Duration, numLexThreads)
 

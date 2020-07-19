@@ -3,6 +3,7 @@ package arithmetic
 import (
 	"time"
 	"unsafe"
+    "fmt"
 )
 
 const (
@@ -108,6 +109,9 @@ It takes as input a lexThreadContext and a channel where it eventually sends
 the result in form of a listOfStacks containing the lexed symbols.
 */
 func lex(threadNum, numThreads int, data []byte, pool *stackPool, c chan lexResult) {
+    //fmt.Printf("Threads #%d: before boundary check:", threadNum)
+    //fmt.Printf("%s|\n", data)
+
     /* To preserve finite tokens boundaries, if we are not the first chunk,
        we look for delimiters, to skip any fragment of finite token */
     if threadNum != 0 {
@@ -120,6 +124,8 @@ func lex(threadNum, numThreads int, data []byte, pool *stackPool, c chan lexResu
         boundary := findCutPoint(data[len(data) - lexerLookahead:]) + len(data) - lexerLookahead
         data = data[:boundary]
     }
+    //fmt.Printf("Thread #%d: after boundary check:", threadNum)
+    //fmt.Printf("%s|\n", data)
 
 	start := time.Now()
 
