@@ -19,32 +19,42 @@ func Generate(lexerFilename string, parserFilename string, outdir string) {
 	fmt.Println("Lex code:")
 	fmt.Println(lexCode)
 
-	var dfa regex.Dfa
+	var finiteDfa regex.Dfa
+	var infiniteDfa []regex.Dfa
 
-	if len(lexRules) > 0 {
+    /* Split between finite and infinite rules, to generate separate
+       automata, for the infinite rules automata generate prefix and suffix
+       accepting automata */
+    var finiteRules, infiniteRules []lexRule
+    for _, rule := range lexRules  {
+        if isFinite(rule.Regex) {
+            finiteRules = append(finiteRules, rule)
+        } else {
+            infiniteRules = append(infiniteRules, rule)
+        }
+    }
+
+	if len(finiteRules) > 0 {
 		var nfa *regex.Nfa
-		success, result := regex.ParseString([]byte(lexRules[0].Regex), 1)
-		if success {
-			nfa = result.Value.(*regex.Nfa)
-			nfa.AddAssociatedRule(0)
-		} else {
-			fmt.Println("Error: could not parse the following regular expression:", lexRules[0].Regex)
-			return
-		}
-		for i := 1; i < len(lexRules); i++ {
+		for i := 0; i < len(finiteRules); i++ {
 			var curNfa *regex.Nfa
-			success, result = regex.ParseString([]byte(lexRules[i].Regex), 1)
+            success, result := regex.ParseString([]byte(finiteRules[i].Regex), 1)
 			if success {
-				curNfa = result.Value.(*regex.Nfa)
-				curNfa.AddAssociatedRule(i)
-				nfa.Unite(*curNfa)
+                if (i == 0) {
+                    nfa = result.Value.(*regex.Nfa)
+				    nfa.AddAssociatedRule(i)
+                } else {
+				    curNfa = result.Value.(*regex.Nfa)
+				    curNfa.AddAssociatedRule(i)
+				    nfa.Unite(*curNfa)
+                }
 			} else {
-				fmt.Println("Error: could not parse the following regular expression:", lexRules[i].Regex)
+				fmt.Println("Error: could not parse the following regular expression:", finiteRules[i].Regex)
 				return
 			}
 		}
 
-		dfa = nfa.ToDfa()
+		finiteDfa = nfa.ToDfa()
 
 		/*ok, hasRuleNum, ruleNum := dfa.Check([]byte(" "))
 		if ok {
@@ -61,6 +71,23 @@ func Generate(lexerFilename string, parserFilename string, outdir string) {
 		fmt.Println("Error: the lexer does not contain any rule")
 		return
 	}
+
+    // TODO: add support for prefix and suffix matching
+    if len(infiniteRules) > 0 {
+        for _, rule := range infiniteRules {
+		    var nfa *regex.Nfa
+            success, result := regex.ParseString([]byte(rule.Regex), 1)
+		    if success {
+                nfa = result.Value.(*regex.Nfa)
+			    nfa.AddAssociatedRule(0)
+			} else {
+			    fmt.Println("Error: could not parse the following regular expression:", rule.Regex)
+			    return
+			}
+
+		    infiniteDfa = append(infiniteDfa, nfa.ToDfa())
+        }
+    }
 
 	var cutPointsDfa regex.Dfa
 	if cutPoints == "" {
@@ -134,7 +161,7 @@ func Generate(lexerFilename string, parserFilename string, outdir string) {
 	handleEmissionError(err)
 	err = emitLexerFunction(outdir, lexCode, lexRules)
 	handleEmissionError(err)
-	err = emitLexerAutomata(outdir, dfa, cutPointsDfa)
+	err = emitLexerAutomata(outdir, finiteDfa, infiniteDfa, cutPointsDfa)
 	handleEmissionError(err)
 	err = emitTokens(outdir, newNonterminals, terminals)
 	handleEmissionError(err)

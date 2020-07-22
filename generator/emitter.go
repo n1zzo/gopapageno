@@ -30,22 +30,7 @@ func emitOutputFolder(outdir string) error {
 	return nil
 }
 
-func emitLexerAutomata(outdir string, dfa regex.Dfa, cutPointsDfa regex.Dfa) error {
-	outPath := outdir + "/" + "lexerautomata.go"
-	file, err := createFile(outPath)
-
-	if err != nil {
-		return err
-	}
-
-	defer file.Close()
-
-	packageName := path.Base(outdir)
-
-	file.WriteString(fmt.Sprintf("package %s\n\n", packageName))
-
-	file.WriteString("var lexerAutomaton lexerDfa = []lexerDfaState {\n")
-	states := dfa.GetStates()
+func printStates(file *os.File, states []*regex.DfaState) {
 	for _, state := range states {
 		file.WriteString("\tlexerDfaState{[256]int{")
 		for i := 0; i < len(state.Transitions)-1; i++ {
@@ -70,27 +55,50 @@ func emitLexerAutomata(outdir string, dfa regex.Dfa, cutPointsDfa regex.Dfa) err
 		}
 		file.WriteString("}},\n")
 	}
-	file.WriteString("}\n\n")
+}
 
-	file.WriteString("var cutPointsAutomaton lexerDfa = []lexerDfaState {\n")
-	states = cutPointsDfa.GetStates()
-	for _, state := range states {
-		file.WriteString("\tlexerDfaState{[256]int{")
-		for i := 0; i < len(state.Transitions)-1; i++ {
-			if state.Transitions[i] == nil {
-				file.WriteString("-1, ")
-			} else {
-				file.WriteString(fmt.Sprintf("%d, ", state.Transitions[i].Num))
-			}
-		}
-		if state.Transitions[len(state.Transitions)-1] == nil {
-			file.WriteString("-1")
-		} else {
-			file.WriteString(fmt.Sprintf("%d", state.Transitions[len(state.Transitions)-1].Num))
-		}
-		file.WriteString(fmt.Sprintf("}, %t, []int{}},\n", state.IsFinal))
+func printAutomata(file *os.File, dfa []regex.Dfa, name string) {
+	file.WriteString("var ")
+    file.WriteString(name)
+    file.WriteString(" [][]lexerDfaState = [][]lexerDfaState {\n")
+    for _, d := range dfa {
+	    file.WriteString("{\n")
+	    states := d.GetStates()
+        printStates(file, states)
+	    file.WriteString("},\n")
+    }
+	file.WriteString("}\n\n")
+}
+
+func printAutomaton(file *os.File, dfa regex.Dfa, name string) {
+	file.WriteString("var ")
+    file.WriteString(name)
+    file.WriteString(" lexerDfa = []lexerDfaState {\n")
+	states := dfa.GetStates()
+    printStates(file, states)
+	file.WriteString("}\n\n")
+}
+
+func emitLexerAutomata(outdir string,
+                       finiteDfa regex.Dfa,
+                       infiniteDfa []regex.Dfa,
+                       cutPointsDfa regex.Dfa) error {
+	outPath := outdir + "/" + "lexerautomata.go"
+	file, err := createFile(outPath)
+
+	if err != nil {
+		return err
 	}
-	file.WriteString("}")
+
+	defer file.Close()
+
+	packageName := path.Base(outdir)
+
+	file.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+
+    printAutomaton(file, finiteDfa, "finiteAutomaton")
+    printAutomata(file, infiniteDfa, "infiniteAutomata")
+    printAutomaton(file, cutPointsDfa, "cutPointsAutomaton")
 
 	return nil
 }

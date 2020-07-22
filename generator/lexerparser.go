@@ -61,6 +61,7 @@ func parseLexer(filename string) ([]lexRule, string, string) {
 	}
 
 	lexRules := parseLexRules(strings.Join(ruleLines, "\n"), definitions)
+    /* Split the lexer rules between finite length ones and infinite length */
 
 	codeLines := make([]string, 0)
 	for scanner.Scan() {
