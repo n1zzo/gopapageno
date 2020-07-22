@@ -1,5 +1,7 @@
 package regex
 
+import "fmt"
+
 const _EPSILON = 0
 
 type NfaState struct {
@@ -226,6 +228,104 @@ func (nfa *Nfa) AddAssociatedRule(ruleNum int) {
 	}
 }
 
+func Visit(nfa *NfaState, visited map[*NfaState]bool) {
+	visited[nfa] = true
+	for _, t := range nfa.Transitions {
+		for _, n := range t {
+			if n != nil && !visited[n] {
+				Visit(n, visited)
+			}
+		}
+	}
+}
+
+func SelectFinals(final *NfaState, visited map[*NfaState]bool, finals map[*NfaState]bool) {
+	/* To compute the set of final states, iteratively collect all the states
+	   which have epsilon transitions to the final states or to states
+	   belonging to the aforementioned set. */
+	final_count := -1
+	for final_count != len(finals) {
+		final_count = len(finals)
+		for n := range visited {
+			if n == final {
+				finals[n] = true
+				continue
+			}
+			for _, t := range n.Transitions[_EPSILON] {
+				if t == final || finals[t] {
+					finals[n] = true
+					break
+				}
+			}
+		}
+	}
+}
+
+func Subtract(x map[*NfaState]bool, y map[*NfaState]bool) {
+	for n := range x {
+		if y[n] {
+			delete(x, n)
+		}
+	}
+}
+
+func (nfa *Nfa) ToPrefix() {
+	/* To accept prefixes, create a new final state with epsilon-transitions
+	   to every other state except the initial state */
+	oldInitial := nfa.Initial
+	visited_nfa := make(map[*NfaState]bool)
+	Visit(oldInitial, visited_nfa)
+	/* Skip the first state, or states reachables only through epsilon
+	   transitions, to avoid accepting empty strings */
+	_, ok := visited_nfa[oldInitial];
+	if ok {
+		delete(visited_nfa, oldInitial);
+	}
+
+	/* Check that the final state have at least one associated rule */
+	if len(nfa.Final.AssociatedRules) == 0 {
+		fmt.Println("Error, making final a state without associated rules!")
+	}
+
+	newNfaState := &NfaState{}
+	for n := range visited_nfa {
+		n.Transitions[_EPSILON] = append(n.Transitions[_EPSILON], newNfaState)
+	}
+	newNfaState.AssociatedRules = nfa.Final.AssociatedRules
+	nfa.Final = newNfaState
+	nfa.NumStates += 1
+}
+
+func (nfa *Nfa) ToSuffix() {
+	/* To accept suffixes, create a new initial state with epsilon-transitions
+	 * to every other state, except final states */
+	visited := make(map[*NfaState]bool)
+	Visit(nfa.Initial, visited)
+	/* Exclude final state when building epsilon-transitions, which are
+	   final states or states with epsilon transitions to a final state */
+	finals := make(map[*NfaState]bool)
+	SelectFinals(nfa.Final, visited, finals)
+	Subtract(visited, finals)
+	visited_slice := make([]*NfaState, 0, len(visited))
+	for s := range visited {
+		visited_slice = append(visited_slice, s)
+	}
+	/* If the resulting set is empty, use the initial state */
+	if len(visited_slice) == 0 {
+		visited_slice = append(visited_slice, nfa.Initial)
+	}
+	newNfaState := &NfaState{}
+	newNfaState.AssociatedRules = nfa.Initial.AssociatedRules
+	newNfaState.Transitions[_EPSILON] = visited_slice
+	nfa.Initial = newNfaState
+	nfa.NumStates += 1
+}
+
+func (nfa *Nfa) ToPrefixSuffix() {
+	nfa.ToPrefix()
+	nfa.ToSuffix()
+}
+
 func (nfa *Nfa) ToDfa() Dfa {
 	genStates := make([]nfaStateSetPtr, 0)
 
@@ -288,20 +388,18 @@ func (nfa *Nfa) ToDfa() Dfa {
 				newStateSetPtr := nfaStateSetPtr{epsilonClosure, &newDfaState}
 
 				genStates = append(genStates, newStateSetPtr)
+
+				// If the state set contains a final state, make it final
+				if stateSetContains(newStateSetPtr.StateSet, nfa.Final) {
+					newStateSetPtr.Ptr.IsFinal = true
+					dfa.Final = append(dfa.Final, newStateSetPtr.Ptr)
+				}
 			}
 		}
 		nextStateToCheckPos++
 	}
 
 	dfa.NumStates = len(genStates)
-
-	for _, genState := range genStates {
-		if stateSetContains(genState.StateSet, nfa.Final) {
-			finalState := genState.Ptr
-			finalState.IsFinal = true
-			dfa.Final = append(dfa.Final, finalState)
-		}
-	}
 
 	return dfa
 }
@@ -392,4 +490,41 @@ func (stateSet1 *nfaStateSetPtr) Equals(stateSet2 *nfaStateSetPtr) bool {
 		}
 	}
 	return true
+}
+
+/* Post-order DFS tree exploration */
+func (dfaState *DfaState) ToNfaState(count *int,
+									 final *NfaState,
+									 nodes []*NfaState) *NfaState {
+	node := nodes[dfaState.Num]
+	if node != nil {
+		return node
+	}
+	*count += 1
+	nfaState := NfaState{}
+	nfaState.AssociatedRules = dfaState.AssociatedRules
+	nodes[dfaState.Num] = &nfaState
+	if dfaState.IsFinal {
+		nfaState.Transitions[_EPSILON] = []*NfaState{final}
+	}
+	for i := 0; i < 256; i++ {
+		next := dfaState.Transitions[i]
+		if next != nil {
+			nfaState.Transitions[i] = []*NfaState{next.ToNfaState(count,
+																  final,
+																  nodes)}
+		}
+	}
+	return &nfaState
+}
+
+/* Convert deterministic automata into non-deterministic one, to be able
+   to simulate many NFA with a lower memory footprint */
+func (dfa *Dfa) ToNfa() *Nfa {
+	nfa := Nfa{}
+	nodes := make([]*NfaState, dfa.NumStates)
+	final := NfaState{}
+	nfa.Final = &final
+	nfa.Initial = dfa.Initial.ToNfaState(&nfa.NumStates, &final, nodes)
+	return &nfa
 }
