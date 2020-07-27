@@ -494,28 +494,28 @@ func (stateSet1 *nfaStateSetPtr) Equals(stateSet2 *nfaStateSetPtr) bool {
 
 /* Post-order DFS tree exploration */
 func (dfaState *DfaState) ToNfaState(count *int,
-									 final *NfaState,
-									 nodes []*NfaState) *NfaState {
-	node := nodes[dfaState.Num]
-	if node != nil {
-		return node
-	}
-	*count += 1
-	nfaState := NfaState{}
-	nfaState.AssociatedRules = dfaState.AssociatedRules
-	nodes[dfaState.Num] = &nfaState
-	if dfaState.IsFinal {
-		nfaState.Transitions[_EPSILON] = []*NfaState{final}
-	}
-	for i := 0; i < 256; i++ {
-		next := dfaState.Transitions[i]
-		if next != nil {
-			nfaState.Transitions[i] = []*NfaState{next.ToNfaState(count,
-																  final,
-																  nodes)}
-		}
-	}
-	return &nfaState
+                                     final *NfaState,
+                                     nodes []*NfaState) *NfaState {
+    node := nodes[dfaState.Num]
+    if node != nil {
+        return node
+    }
+    *count += 1
+    nfaState := NfaState{}
+    nfaState.AssociatedRules = dfaState.AssociatedRules
+    nodes[dfaState.Num] = &nfaState
+    if dfaState.IsFinal {
+        nfaState.Transitions[_EPSILON] = []*NfaState{final}
+    }
+    for i := 0; i < 256; i++ {
+        next := dfaState.Transitions[i]
+        if next != nil {
+            nfaState.Transitions[i] = []*NfaState{next.ToNfaState(count,
+                                                                  final,
+                                                                  nodes)}
+        }
+    }
+    return &nfaState
 }
 
 /* Convert deterministic automata into non-deterministic one, to be able
